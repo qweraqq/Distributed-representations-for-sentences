@@ -20,6 +20,16 @@ def load_rae_parameters(w1_filename, w2_filename, b_filename):
     b_tmp = np.loadtxt(b_filename)
     return w1_tmp, w2_tmp, b_tmp
 
+def load_rae_reconstruct_parameters(w1p_filename, w2p_filename, b1p_filename, b2p_filename):
+    """
+    :param w1p_filename:
+    :param w2p_filename:
+    :param b1p_filename:
+    :param b2p_filename:
+    :return:
+    """
+    return np.loadtxt(w1p_filename), np.loadtxt(w2p_filename), np.loadtxt(b1p_filename), np.loadtxt(b2p_filename)
+
 
 def str_to_vector(tokenized_sentence, w1, w2, b):
     """
@@ -38,16 +48,43 @@ def str_to_vector(tokenized_sentence, w1, w2, b):
     vector_dim = tokenized_sentence.shape[1]
     h = np.zeros(vector_dim)  # init hidden
     sentence_len = tokenized_str.shape[0]
-    for x in range(sentence_len):
-        h = np.tanh((1/(x+1))*np.dot(tokenized_sentence[x, :], w1) +
-                    (x/(x+1))*np.dot(h, w2))
+    candidate = np.copy(tokenized_sentence)
+    candidate_weight = [1] * sentence_len
+    W1p, W2p, b1p, b2p = load_rae_reconstruct_parameters("W1prime.txt", "W2prime.txt", "b1prime.txt", "b2prime.txt")
+    order = []
+    while candidate.shape[0] > 1:
+        min_idx = -1
+        min_error = 1000000
+        for i in range(candidate.shape[0] - 1):
+
+            n1 = candidate_weight[i]
+            n2 = candidate_weight[i+1]
+            h = np.tanh((n1+1)/(n1+n2+2)*np.dot(candidate[i, :], w1) +
+                    (n2+1)/(n1+n2+2)*np.dot(candidate[i+1, :], w2) + b)
+            h = h/(np.sum(h**2)**0.5)  # normalization
+            if np.isnan(h[0]) or np.isnan(h[1]):  # special case
+                h = np.zeros(vector_dim)
+            error = get_reconstruction_error(candidate[i],n1,candidate[i+1],n2,h,W1p,W2p,b1p,b2p)
+            if error < min_error:
+                min_error = error
+                min_idx = i
+        order.append(min_idx)
+        n1 = candidate_weight[min_idx]
+        n2 = candidate_weight[min_idx+1]
+        h = np.tanh((n1+1)/(n1+n2+2)*np.dot(candidate[i, :], w1) +
+                    (n2+1)/(n1+n2+2)*np.dot(candidate[i + 1, :], w2) + b)
         h = h/(np.sum(h**2)**0.5)  # normalization
         if np.isnan(h[0]) or np.isnan(h[1]):  # special case
             h = np.zeros(vector_dim)
-    return h
+        candidate_weight[min_idx]  = n1 + n2
+        candidate_weight = np.delete(candidate_weight, [min_idx+1])
+        candidate[min_idx] = h
+        candidate = np.delete(candidate, [min_idx+1], axis=0)
+
+    return candidate[0],order
 
 
-def get_reconstruction_error(h1, n1, h2, n2, h, w1, w2, b):
+def get_reconstruction_error(h1, n1, h2, n2, h, w1, w2, b1, b2):
     """
     :param h1:
     :param n1:
@@ -59,6 +96,10 @@ def get_reconstruction_error(h1, n1, h2, n2, h, w1, w2, b):
     :param b:
     :return:
     """
+    error1 = np.dot(h, w1) + b1 - h1
+    error2 = np.dot(h, w2) + b2 - h2
+    return (n1+1)/(n1+n2+2)*np.dot(error1, error1) + (n2+1)/(n1+n2+2)*np.dot(error2, error2)
+
 
 
 def load_word_embeddings(vocab_file, vectors_file):
@@ -121,15 +162,15 @@ def tokenize_sentence(line, W_norm, vocab, tmp_lambda=0.8):
     rvalue = np.zeros((1, vector_dim))
     sen = list(jieba.cut(line))
     sen_cut = []
-    wjm1 = "tmp"
+    wjm1 = ""
+    Wjm1 = np.zeros([1,vector_dim])
     for j, w in enumerate(sen):
         w = w.encode('utf-8')
         if w not in vocab:
-            if j >= 1:
-                sen_cut.append(wjm1)
+
+            if j == len(sen)-1:  # end
                 rvalue = np.vstack((rvalue, Wjm1))
-            Wjm1 = np.zeros((1, vector_dim))  # word 'unk'=[0]
-            wjm1 = w
+                sen_cut.append(wjm1)
             continue
 
         if j == 0:
@@ -163,11 +204,16 @@ if __name__ == '__main__':
     vectors_file = 'jieba_ths_vectors_big.txt'
     W_norm, vocab, ivocab = load_word_embeddings(vocab_file, vectors_file)
 
-    tokenized_str, sen_cut = tokenize_sentence("花好“纳税人”的每一分钱——我国深化财税体制改革综述", W_norm, vocab, 0.6)
+    tokenized_str, sen_cut = tokenize_sentence("保监会：对个别机构激进股权投资行为及时进行必要干预", W_norm, vocab, 0.7)
+    print tokenized_str
+    print tokenized_str.shape
     for x in sen_cut:
-        print x.decode('utf-8') + ' ',
-    print
-    for x in list(jieba.cut("花好“纳税人”的每一分钱——我国深化财税体制改革综述")):
-        print x.encode('utf-8') + ' ',
-    print
+        print x.decode('utf-8')
+
+    W1, W2, b = load_rae_parameters("W1.txt", "W2.txt", "b.txt")
+    W1p, W2p, b1p, b2p = load_rae_reconstruct_parameters("W1prime.txt", "W2prime.txt", "b1prime.txt", "b2prime.txt")
+
+    h,order = str_to_vector(tokenized_str, W1, W2, b)
+    print h
+    print order
 
