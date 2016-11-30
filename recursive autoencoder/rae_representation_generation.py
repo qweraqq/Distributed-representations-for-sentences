@@ -71,8 +71,8 @@ def str_to_vector(tokenized_sentence, w1, w2, b):
         order.append(min_idx)
         n1 = candidate_weight[min_idx]
         n2 = candidate_weight[min_idx+1]
-        h = np.tanh((n1+1)/(n1+n2+2)*np.dot(candidate[i, :], w1) +
-                    (n2+1)/(n1+n2+2)*np.dot(candidate[i + 1, :], w2) + b)
+        h = np.tanh((n1)/(n1+n2)*np.dot(candidate[min_idx, :], w1) +
+                    (n2)/(n1+n2)*np.dot(candidate[min_idx + 1, :], w2))
         h = h/(np.sum(h**2)**0.5)  # normalization
         if np.isnan(h[0]) or np.isnan(h[1]):  # special case
             h = np.zeros(vector_dim)
@@ -167,7 +167,6 @@ def tokenize_sentence(line, W_norm, vocab, tmp_lambda=0.8):
     for j, w in enumerate(sen):
         w = w.encode('utf-8')
         if w not in vocab:
-
             if j == len(sen)-1:  # end
                 rvalue = np.vstack((rvalue, Wjm1))
                 sen_cut.append(wjm1)
@@ -204,16 +203,21 @@ if __name__ == '__main__':
     vectors_file = 'jieba_ths_vectors_big.txt'
     W_norm, vocab, ivocab = load_word_embeddings(vocab_file, vectors_file)
 
-    tokenized_str, sen_cut = tokenize_sentence("保监会：对个别机构激进股权投资行为及时进行必要干预", W_norm, vocab, 0.7)
-    print tokenized_str
-    print tokenized_str.shape
-    for x in sen_cut:
-        print x.decode('utf-8')
-
+    tokenized_str, sen_cut = tokenize_sentence("一带一路给中德合作带来机遇", W_norm, vocab, 0.7)
     W1, W2, b = load_rae_parameters("W1.txt", "W2.txt", "b.txt")
-    W1p, W2p, b1p, b2p = load_rae_reconstruct_parameters("W1prime.txt", "W2prime.txt", "b1prime.txt", "b2prime.txt")
-
     h,order = str_to_vector(tokenized_str, W1, W2, b)
-    print h
-    print order
+    import os
+    this_file_path = os.path.dirname(os.path.abspath(__file__))
+    data_file = os.path.join(this_file_path,"..","data","raw_news.txt")
+    output_file = open('sen_vec', 'w')
+    h_write = np.zeros((1,100))
+    with open(data_file, 'r') as f:
+        for line in f.readlines():
+            tokenized_str, sen_cut = tokenize_sentence(line, W_norm, vocab, 0.7)
+            h,order = str_to_vector(tokenized_str, W1, W2, b)
+            h_write = np.vstack((h_write, h))
+    np.savetxt(output_file,h_write)
+    output_file.close()
+
+
 
